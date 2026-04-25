@@ -1,0 +1,25 @@
+:root {
+  --background: #020617;
+  --foreground: #f8fafc;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::selection {
+  background: #5eead4;
+  color: #020617;
+}
