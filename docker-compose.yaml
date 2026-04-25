@@ -1,0 +1,24 @@
+version: "3.8"
+
+services:
+  # Servicio de Base de Datos
+  db:
+    image: postgres:15-alpine
+    container_name: notification_db
+    restart: always
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: adminpassword
+      POSTGRES_DB: notification_system
+    ports:
+      - "5432:5432"
+    volumes:
+      # Volumen para persistir los datos de Postgres localmente
+      - postgres_data:/var/lib/postgresql/data
+      # MAGIA AQUÍ: Mapeamos tu archivo SQL generado previamente.
+      # Docker ejecutará este archivo automáticamente al crear el contenedor
+      # poblando tus tablas y datos mock de inmediato.
+      - ./postgres_schema.sql:/docker-entrypoint-initdb.d/init.sql
+
+volumes:
+  postgres_data:
