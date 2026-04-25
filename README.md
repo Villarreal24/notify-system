@@ -6,7 +6,7 @@ Full-stack system for sending category-based notifications to subscribed users a
 
 - Backend: FastAPI, async SQLAlchemy, PostgreSQL, Pydantic, and Tenacity.
 - Frontend: Next.js App Router, React 19, TypeScript, Tailwind CSS, and Chakra UI.
-- Local database: PostgreSQL with `postgres_schema.sql` for fresh initialization and `postgres_migration_fault_tolerance.sql` for existing databases.
+- Local database: PostgreSQL with `postgres_schema.sql` for fresh initialization.
 
 ## Architecture
 
