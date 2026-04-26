@@ -14,11 +14,11 @@ class NotificationCreate(BaseModel):
 class NotificationLogRead(BaseModel):
     id: UUID
     message: str
-    category_id: int
+    category_id: int | None
     category_name: str | None
-    channel_id: int
+    channel_id: int | None
     channel_name: str | None
-    user_id: UUID
+    user_id: UUID | None
     user_name: str | None
     status: LogStatus
     error_message: str | None

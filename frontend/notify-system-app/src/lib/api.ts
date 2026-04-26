@@ -6,12 +6,12 @@ export type Category = {
 export type NotificationLog = {
   id: string;
   message: string;
-  category_id: number;
+  /** null: legacy or incomplete row; optimistic placeholders may set nulls too */
+  category_id: number | null;
   category_name: string | null;
-  /** null only for optimistic UI placeholders */
+  /** null only for optimistic UI placeholders in some cases */
   channel_id: number | null;
   channel_name: string | null;
-  /** null only for optimistic UI placeholders */
   user_id: string | null;
   user_name: string | null;
   status: "PENDING" | "SUCCESS" | "FAILED";

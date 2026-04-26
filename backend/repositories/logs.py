@@ -20,8 +20,9 @@ class NotificationLogRepository:
                 selectinload(NotificationLog.user),
             )
             .where(
-                NotificationLog.user_id.is_not(None),
+                NotificationLog.category_id.is_not(None),
                 NotificationLog.channel_id.is_not(None),
+                NotificationLog.user_id.is_not(None),
             )
             .order_by(NotificationLog.created_at.desc())
             .limit(limit)

@@ -87,7 +87,7 @@ Errors from the app use a consistent shape where applicable:
    pip install -r requirements.txt
    alembic upgrade head
    python -m seed_data
-   uvicorn main:app --reload
+   fastapi dev --reload
    ```
 
    API: `http://localhost:8000`
@@ -96,8 +96,8 @@ Errors from the app use a consistent shape where applicable:
 
    ```bash
    cd frontend/notify-system-app
-   npm install
-   npm run dev
+   bun install
+   bun dev
    ```
 
    App: `http://localhost:3000`

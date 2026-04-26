@@ -1,6 +1,8 @@
+# Python bytecode/cache files
 __pycache__/
-backend/tests/__pycache__/
+**/__pycache__/
 *.py[cod]
+*$py.class
 .env
 .env.*
 !.env.example

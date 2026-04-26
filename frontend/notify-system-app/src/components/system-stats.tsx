@@ -16,7 +16,7 @@ export function SystemStats({
   ).size;
   const stats = [
     { label: "Categories", value: categories.length },
-    { label: "Delivery rows", value: withoutOptimistic.length },
+    { label: "Deliveries", value: withoutOptimistic.length },
     { label: "Users", value: uniqueUsers },
   ];
 

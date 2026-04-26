@@ -19,6 +19,11 @@ depends_on: str | Sequence[str] | None = None
 log_status = postgresql.ENUM(
     "PENDING", "SUCCESS", "FAILED", name="log_status", create_type=True
 )
+# Same DB type; create_type=False avoids a second CREATE TYPE when create_table runs
+# (SQLAlchemy would otherwise emit CREATE TYPE again in the ENUM before_create hook).
+log_status_column = postgresql.ENUM(
+    "PENDING", "SUCCESS", "FAILED", name="log_status", create_type=False
+)
 
 
 def upgrade() -> None:
@@ -124,7 +129,7 @@ def upgrade() -> None:
         sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column(
             "status",
-            log_status,
+            log_status_column,
             server_default=sa.text("'PENDING'::log_status"),
             nullable=False,
         ),
