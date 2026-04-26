@@ -19,10 +19,6 @@ class NotificationLogRepository:
                 selectinload(NotificationLog.channel),
                 selectinload(NotificationLog.user),
             )
-            .where(
-                NotificationLog.user_id.is_not(None),
-                NotificationLog.channel_id.is_not(None),
-            )
             .order_by(NotificationLog.created_at.desc())
             .limit(limit)
         )
@@ -47,8 +43,8 @@ class NotificationLogRepository:
         *,
         message: str,
         category_id: int,
-        channel_id: int | None = None,
-        user_id: UUID | None = None,
+        channel_id: int,
+        user_id: UUID,
     ) -> NotificationLog:
         log = NotificationLog(
             message=message,

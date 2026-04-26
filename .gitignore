@@ -1,2 +1,16 @@
+# Python bytecode/cache files
 __pycache__/
+**/__pycache__/
 *.py[cod]
+*$py.class
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+frontend/notify-system-app/.env
+frontend/notify-system-app/.env.*
+!frontend/notify-system-app/.env.example
+.venv
+venv

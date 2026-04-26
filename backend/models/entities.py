@@ -5,7 +5,18 @@ from datetime import datetime
 from typing import List
 from uuid import UUID
 
-from sqlalchemy import Column, DateTime, Enum, ForeignKey, Integer, String, Table, Text, func
+from sqlalchemy import (
+    Column,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Table,
+    Text,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID as PostgresUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -34,6 +45,7 @@ user_subscriptions = Table(
         primary_key=True,
     ),
     Column("created_at", DateTime(timezone=True), server_default=func.now()),
+    Index("idx_user_subs_category", "category_id"),
 )
 
 user_channels = Table(
@@ -58,7 +70,7 @@ user_channels = Table(
 class Category(Base):
     __tablename__ = "categories"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -72,7 +84,7 @@ class Category(Base):
 class Channel(Base):
     __tablename__ = "channels"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -95,6 +107,9 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
 
     subscriptions: Mapped[List[Category]] = relationship(
         secondary=user_subscriptions, back_populates="users"
@@ -106,19 +121,24 @@ class User(Base):
 
 class NotificationLog(Base):
     __tablename__ = "notification_logs"
+    __table_args__ = (
+        Index("ix_notification_logs_user_id", "user_id"),
+        Index("ix_notification_logs_status_created", "status", "created_at"),
+        Index("idx_notification_logs_status", "status"),
+    )
 
     id: Mapped[UUID] = mapped_column(
         PostgresUUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
     )
-    message: Mapped[str] = mapped_column(Text, nullable=False)
-    category_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("categories.id", ondelete="SET NULL")
+    message: Mapped[str] = mapped_column(String(1000), nullable=False)
+    category_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("categories.id", ondelete="RESTRICT"), nullable=False
     )
-    channel_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("channels.id", ondelete="SET NULL")
+    channel_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("channels.id", ondelete="RESTRICT"), nullable=False
     )
-    user_id: Mapped[UUID | None] = mapped_column(
-        PostgresUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE")
+    user_id: Mapped[UUID] = mapped_column(
+        PostgresUUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )
     status: Mapped[LogStatus] = mapped_column(
         Enum(LogStatus, name="log_status"),
@@ -131,6 +151,13 @@ class NotificationLog(Base):
         DateTime(timezone=True), server_default=func.now()
     )
 
-    category: Mapped[Category | None] = relationship()
-    channel: Mapped[Channel | None] = relationship()
-    user: Mapped[User | None] = relationship()
+    category: Mapped[Category] = relationship()
+    channel: Mapped[Channel] = relationship()
+    user: Mapped[User] = relationship()
+
+
+# Match initial migration: btree on created_at DESC (autogenerate must not drop as "extra")
+Index(
+    "idx_notification_logs_created_at",
+    NotificationLog.__table__.c.created_at.desc(),
+)

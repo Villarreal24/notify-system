@@ -1,178 +1,130 @@
 # Notification System
 
-Full-stack system for sending category-based notifications to subscribed users and recording each delivery by user and channel. The project focuses on clean architecture, background processing, fault tolerance, optimistic UI, and SSR-driven updates from Next.js.
+Full-stack system for sending category-based notifications to subscribed users and recording each delivery by user and channel. The project focuses on clean architecture, background processing, failure handling, optimistic UI, and server-driven updates in Next.js.
 
 ## Stack
 
-- Backend: FastAPI, async SQLAlchemy, PostgreSQL, Pydantic, and Tenacity.
-- Frontend: Next.js App Router, React 19, TypeScript, Tailwind CSS, and Chakra UI.
-- Local database: PostgreSQL with `postgres_schema.sql` for fresh initialization.
+- **Backend:** FastAPI, async SQLAlchemy, PostgreSQL, Pydantic, Alembic, Tenacity.
+- **Frontend:** Next.js App Router, React 19, TypeScript, Tailwind CSS, and Chakra UI.
+- **Database:** PostgreSQL. **SQLAlchemy models + Alembic** are the source of truth. `postgres_schema.sql` is only for Docker’s first-time init to match the current revision.
 
 ## Architecture
 
 ```text
 backend/
-  api/           FastAPI routes and BackgroundTasks
-  services/      business rules and delivery orchestration
-  repositories/  SQLAlchemy data access
-  models/        ORM entities
-  schemas/       DTOs Pydantic
-  strategies/    SMS, E-Mail, and Push channels
+  api/            FastAPI routes, BackgroundTasks, exception handlers
+  services/       Business rules and delivery orchestration
+  repositories/   SQLAlchemy data access
+  models/         ORM entities
+  schemas/        Pydantic DTOs
+  strategies/     SMS, E-mail, and Push channels
+  alembic/        Migrations
+  core/           Settings and database engine
 
 frontend/notify-system-app/
-  src/app/        Server Components and Server Actions
-  src/components/ Chakra UI Client Components
-  src/hooks/      useActionState and useOptimistic wiring
-  src/lib/        API client and shared types
+  src/app/         Server Components and Server Actions
+  src/components/ Chakra client components
+  src/hooks/      useActionState and optimistic delivery wiring
+  src/lib/        API client, shared types, error types
 ```
 
-## Notification Flow
+## Notification flow
 
-`POST /notifications` does not send notifications in the request path. The endpoint validates the payload, finds users subscribed to the selected category, and creates `PENDING` logs for each concrete delivery:
+`POST /notifications` does not deliver on the request thread. The handler validates the payload, loads subscribers in the **active** (non–soft-deleted) user set, and creates one `PENDING` `notification_log` per user and preferred channel. The API responds with **202 Accepted** and the list of created logs. FastAPI `BackgroundTasks` then runs the delivery job with controlled concurrency and bounded retries (see `NotificationService`).
 
-```text
-notification + category
-  -> subscribed users
-  -> preferred channels per user
-  -> notification_logs per user/channel
-  -> BackgroundTasks receives the log_ids list
-```
+## Background delivery, concurrency, and fault tolerance
 
-The endpoint responds with `202 Accepted` and the list of created logs. Each log includes `category_id`, `channel_id`, `user_id`, `status`, and `error_message`, so the history displays real deliveries such as “To Alice Johnson / E-Mail” instead of an aggregate send order.
+Delivery runs in a background task. Batched sends use a semaphore sized from settings (`NOTIFICATION_DELIVERY_CONCURRENCY`, capped by the DB connection pool) so application concurrency does not outpace SQLAlchemy’s pool. Retries are implemented with Tenacity. Transient and simulated provider failures are recorded with **sanitized** `error_message` values, not raw stack traces.
 
-## Background, Concurrency, And Performance
+> **Note:** `BackgroundTasks` is in-process only. A hard process crash after the HTTP response can leave rows in `PENDING` until a follow-up or worker exists; see `Notify_system.md` and treat this as a demo-appropriate choice unless you add a durable queue (Redis, SQS, etc.).
 
-The actual delivery happens in FastAPI `BackgroundTasks`. `NotificationService.deliver_pending_logs()` loads pending logs and processes the batch with controlled concurrency:
+## Database, migrations, and seeds
 
-- Uses `asyncio.Semaphore(50)` to limit simultaneous deliveries.
-- Builds one async task per log.
-- Runs the batch with `asyncio.gather(..., return_exceptions=True)`.
-- A single delivery failure does not cancel the rest of the batch.
-- Once the batch finishes, each log is updated to `SUCCESS` or `FAILED`.
-- Status commits/rollbacks are performed in an ordered way after gathering results.
+1. **Preferred:** `docker compose up -d` (optional first-time `postgres_schema.sql` load), then from `backend/` run:
 
-This model simulates a basic pool/rate limit: it avoids a blocking sequential loop while also preventing unlimited send fan-out.
+   ```bash
+   .venv/bin/alembic upgrade head
+   .venv/bin/python -m seed_data
+   ```
 
-## Simulated Latency, Retries, And Failures
+2. If the database was created from an older one-off script, or you need a clean state, **drop the volume** or `alembic stamp head` / `alembic upgrade` as appropriate.
 
-Channels implement the Strategy pattern and simulate external providers:
+- **Soft deletes:** `users.deleted_at` marks logical deletion; subscribers with a timestamp are excluded from new sends; historical `notification_logs` still reference the user id.
+- **Seeding:** `seed_data` is idempotent and mirrors the sample data in `postgres_schema.sql`.
 
-- `SMS`: `1.0s` to `3.0s` latency.
-- `E-Mail`: `0.5s` to `2.0s` latency.
-- `Push Notification`: `1.0s` to `4.0s` latency.
-- Each provider has a `15%` random failure rate to simulate timeouts/errors.
-- Tenacity retries delivery up to `3` times with a fixed `2s` wait.
+## Environment
 
-If retries are exhausted, only that log is marked as `FAILED` and stores `error_message`. If delivery succeeds, the log is marked as `SUCCESS`.
+- **Backend** — copy [backend/.env.example](backend/.env.example) to `backend/.env` and adjust. Never commit real secrets. `.env` is gitignored.
+- **Frontend (server only)** — copy [frontend/notify-system-app/.env.example](frontend/notify-system-app/.env.example) to `frontend/notify-system-app/.env` if the API is not on `http://localhost:8000`. Use `API_BASE_URL` (not `NEXT_PUBLIC_*`) unless the browser must call the API directly.
 
-## Frontend, SSR, And Optimistic UI
+## API contracts (high level)
 
-The main page is a Server Component in `src/app/page.tsx`. It loads categories and logs from the server with `getCategories()` and `getNotificationLogs()`. If the history request fails, the UI displays an error instead of hiding it as an empty list.
+- `GET /health` — liveness: no database call; use for Kubernetes liveness so brief DB outages do not restart the pod.
+- `GET /health/ready` — readiness: `SELECT 1`; returns 503 if the database is unavailable; use for readiness and dependency checks.
+- `GET /categories`, `GET /channels`
+- `GET /notification-logs?limit=` (1–100)
+- `POST /notifications` — 202, returns created log rows in `PENDING` state
 
-The form uses:
-
-- `useActionState` to execute the `submitNotification` Server Action.
-- `useOptimistic` to show immediate feedback.
-- `confirmMany` to replace the temporary placeholder with all real logs returned by the backend.
-- `rollback` if the backend could not register the logs.
-
-The Server Action calls `revalidatePath("/")` after creating logs. The dashboard also runs `router.refresh()` when the browser tab regains focus or becomes visible again, with a `1s` guard to avoid duplicate requests. Because API fetches use `cache: "no-store"`, refresh requests fresh backend data and lets the UI reconcile `PENDING -> SUCCESS/FAILED` changes without a manual reload.
-
-## Database
-
-`notification_logs` records deliveries by user/channel and includes:
-
-- `status`: `PENDING`, `SUCCESS`, or `FAILED`.
-- `error_message`: nullable details when a delivery fails.
-- relationships with `categories`, `channels`, and `users`.
-
-For a fresh database, use `postgres_schema.sql`. For an existing database created before status tracking, apply:
-
-```bash
-PGPASSWORD=adminpassword psql -h localhost -U admin -d notification_system \
-  -f postgres_migration_fault_tolerance.sql
-```
-
-## Main Contracts
-
-- `GET /health`
-- `GET /categories`
-- `GET /channels`
-- `GET /notification-logs`
-- `POST /notifications`
-
-`POST /notifications` returns a list of `PENDING` logs:
+Errors from the app use a consistent shape where applicable:
 
 ```json
-[
-  {
-    "id": "uuid",
-    "message": "Game starts",
-    "category_id": 1,
-    "category_name": "Sports",
-    "channel_id": 2,
-    "channel_name": "E-Mail",
-    "user_id": "uuid",
-    "user_name": "Alice Johnson",
-    "status": "PENDING",
-    "error_message": null,
-    "created_at": "2026-04-25T18:40:23.907705Z"
-  }
-]
+{ "code": "CATEGORY_NOT_FOUND", "detail": "…" }
 ```
 
-## Running Locally
+## Running locally
 
-1. Start the local PostgreSQL database with Docker Compose:
+1. **PostgreSQL**
 
-The root `docker-compose.yaml` file creates a local PostgreSQL container named `notification_db`, exposes it on `localhost:5432`, and initializes the `notification_system` database with `postgres_schema.sql` the first time the volume is created.
+   ```bash
+   docker compose up -d
+   ```
 
-```bash
-docker compose up -d
-```
+2. **Backend**
 
-2. Install and run the backend:
+   ```bash
+   cd backend
+   python3 -m venv .venv
+   source .venv/bin/activate   # Windows: .venv\Scripts\activate
+   pip install -r requirements.txt
+   alembic upgrade head
+   python -m seed_data
+   fastapi dev --reload
+   ```
 
-```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn main:app --reload
-```
+   API: `http://localhost:8000`
 
-The API is available at `http://localhost:8000`.
+3. **Frontend**
 
-3. Install and run the frontend:
+   ```bash
+   cd frontend/notify-system-app
+   bun install
+   bun dev
+   ```
 
-```bash
-cd frontend/notify-system-app
-npm install
-npm run dev
-```
-
-The app is available at `http://localhost:3000`.
+   App: `http://localhost:3000`
 
 ## Validation
 
-Backend:
+**Backend**
 
 ```bash
 cd backend
 .venv/bin/python -m pytest
 ```
 
-Frontend:
+**Frontend**
 
 ```bash
 cd frontend/notify-system-app
 npm run lint
+npm test
+npm run build
 ```
 
-## Technical Decisions
+## Technical decisions (evaluation summary)
 
-- FastAPI routes delegate to services and repositories; ORM access is encapsulated in `repositories`.
-- Channels are resolved with Strategy + Factory.
-- The HTTP response is fast (`202 Accepted`); the heavy work happens in background.
-- Logs represent real deliveries, not aggregate orders.
-- The UI combines SSR for the initial history, Server Actions for mutations, `useOptimistic` for immediate feedback, and focus-based refresh to reconcile asynchronous status changes.
+- **Layering:** routes delegate to services; services use repositories; no raw SQL in routes.
+- **Patterns:** strategy + factory for channels, repository abstraction, DTOs with Pydantic, dependency injection via `Depends()`.
+- **DB:** foreign keys, indexes on `notification_logs (user_id)`, `(status, created_at)`, and `created_at DESC` for history; `message` length aligned to API validation; Alembic for evolution.
+- **Security posture:** the challenge does not require authentication; the API should still not leak internal errors to clients, and `error_message` in the DB is sanitized.
+- **Frontend:** `useActionState` / `useOptimistic` without global state for business data; `ApiError` maps HTTP + JSON codes to user messages; all UI copy is English.

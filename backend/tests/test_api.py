@@ -104,6 +104,13 @@ async def override_notification_service() -> AsyncIterator[FakeNotificationServi
     yield FakeNotificationService()
 
 
+def test_health_liveness_does_not_require_database() -> None:
+    with TestClient(app) as client:
+        response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
 def test_read_routes_return_catalogs() -> None:
     app.dependency_overrides[get_catalog_service] = override_catalog_service
     app.dependency_overrides[get_log_service] = override_log_service
@@ -157,6 +164,16 @@ def test_create_notification_returns_accepted(monkeypatch) -> None:
     assert delivered == [log_ids]
 
 
+def test_validation_error_returns_code() -> None:
+    with TestClient(app) as client:
+        response = client.post("/notifications", json={})
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body.get("code") == "VALIDATION_ERROR"
+    assert isinstance(body.get("detail"), list)
+
+
 def test_create_notification_rejects_unknown_category() -> None:
     app.dependency_overrides[get_notification_service] = override_notification_service
 
@@ -169,3 +186,6 @@ def test_create_notification_rejects_unknown_category() -> None:
     app.dependency_overrides.clear()
 
     assert response.status_code == 404
+    data = response.json()
+    assert data.get("code") == "CATEGORY_NOT_FOUND"
+    assert "999" in data.get("detail", "")
