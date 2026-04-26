@@ -7,11 +7,12 @@ Idempotent seed for catalog data and sample users. Run after migrations:
 import asyncio
 import os
 import sys
+from typing import cast
 from uuid import UUID
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from sqlalchemy import func, insert, select
+from sqlalchemy import Table, func, insert, select, text
 
 from core.database import async_session_factory
 from models import Category, Channel, User
@@ -59,6 +60,14 @@ async def _ensure_catalog_row(
             result = await session.get(model, row_id)
             if result is None:
                 session.add(model(id=row_id, name=name))  # type: ignore[call-arg]
+        max_id = await session.scalar(select(func.max(model.id)))
+        m = 0 if max_id is None else int(max_id)
+        table = cast(Table, model.__table__)
+        await session.execute(
+            text("SELECT setval(pg_get_serial_sequence(:tbl, 'id'), :m, true)").bindparams(
+                tbl=table.fullname, m=m
+            )
+        )
         await session.commit()
 
 
