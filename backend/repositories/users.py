@@ -14,7 +14,10 @@ class UserRepository:
         statement = (
             select(User)
             .join(user_subscriptions, User.id == user_subscriptions.c.user_id)
-            .where(user_subscriptions.c.category_id == category_id)
+            .where(
+                user_subscriptions.c.category_id == category_id,
+                User.deleted_at.is_(None),
+            )
             .options(selectinload(User.channels))
             .order_by(User.name)
         )

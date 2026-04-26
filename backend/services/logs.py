@@ -11,9 +11,6 @@ class LogService:
         logs = await self.log_repository.list_recent(limit=limit)
         return [notification_log_to_read_model(log) for log in logs]
 
-    def _to_read_model(self, log: NotificationLog) -> NotificationLogRead:
-        return notification_log_to_read_model(log)
-
 
 def notification_log_to_read_model(log: NotificationLog) -> NotificationLogRead:
     return NotificationLogRead(

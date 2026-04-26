@@ -6,11 +6,12 @@ from uuid import UUID
 from tenacity import retry, stop_after_attempt, wait_fixed
 
 from models import LogStatus, NotificationLog, User
+from core.config import get_settings
 from repositories.categories import CategoryRepository
 from repositories.logs import NotificationLogRepository
 from repositories.users import UserRepository
+from strategies.factory import ChannelFactory, UnknownChannelError
 from strategies.notification_channel import NotificationChannel, SendResult
-from strategies.factory import ChannelFactory
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +23,18 @@ class CategoryNotFoundError(ValueError):
 
 class NotificationDeliveryError(RuntimeError):
     pass
+
+
+def _sanitize_notification_failure_message(exc: BaseException) -> str:
+    if isinstance(exc, UnknownChannelError):
+        return "No delivery strategy is registered for this channel name."
+    if isinstance(exc, NotificationDeliveryError):
+        return "The channel could not complete delivery for this user."
+    if isinstance(exc, (TimeoutError, ConnectionError, OSError)):
+        return "A transient network or I/O error occurred while delivering the notification."
+    if isinstance(exc, RuntimeError):
+        return "The channel provider did not complete delivery (simulated or transient error)."
+    return "Delivery failed after retries. See server logs for technical details."
 
 
 @dataclass(frozen=True)
@@ -51,6 +64,12 @@ class NotificationService:
         self.log_repository = log_repository
         self.channel_factory = channel_factory
         self.session = session
+        settings = get_settings()
+        pool_cap = max(1, settings.db_pool_size + settings.db_max_overflow)
+        self._max_delivery_concurrency = min(
+            max(1, settings.notification_delivery_concurrency),
+            pool_cap,
+        )
 
     async def ensure_category_exists(self, category_id: int) -> None:
         category = await self.category_repository.get_by_id(category_id)
@@ -133,7 +152,7 @@ class NotificationService:
             for log_id in log_ids
             if (log := await self.log_repository.get_by_id(log_id)) is not None
         ]
-        semaphore = asyncio.Semaphore(50)
+        semaphore = asyncio.Semaphore(self._max_delivery_concurrency)
         tasks = [
             self._send_delivery_log(log=log, semaphore=semaphore)
             for log in logs
@@ -143,18 +162,21 @@ class NotificationService:
 
         try:
             for log, result in zip(logs, results, strict=True):
-                if isinstance(result, Exception):
-                    await self.log_repository.update_status(
-                        log_id=log.id,
-                        status=LogStatus.FAILED,
-                        error_message=str(result),
-                    )
-                else:
+                if isinstance(result, DeliveryAttempt):
                     await self.log_repository.update_status(
                         log_id=result.log.id,
                         status=LogStatus.SUCCESS,
                         error_message=None,
                     )
+                elif isinstance(result, Exception):
+                    await self.log_repository.update_status(
+                        log_id=log.id,
+                        status=LogStatus.FAILED,
+                        error_message=_sanitize_notification_failure_message(result),
+                    )
+                else:
+                    # e.g. KeyboardInterrupt; gather can surface BaseException
+                    raise result
 
             await self.commit()
         except Exception:
@@ -188,7 +210,7 @@ class NotificationService:
             await self.log_repository.update_status(
                 log_id=log_id,
                 status=LogStatus.FAILED,
-                error_message=str(exc),
+                error_message=_sanitize_notification_failure_message(exc),
             )
             await self.commit()
             return None

@@ -1,2 +1,13 @@
 __pycache__/
 *.py[cod]
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+frontend/notify-system-app/.env
+frontend/notify-system-app/.env.*
+!frontend/notify-system-app/.env.example
+.venv
+venv

@@ -1,9 +1,10 @@
 import { Badge, Box, Flex, Stack, Text } from "@chakra-ui/react";
 
 import type { NotificationLog } from "@/lib/api";
+import { isOptimisticLogId } from "@/lib/notification-types";
 
 function formatDate(value: string) {
-  return new Intl.DateTimeFormat("es", {
+  return new Intl.DateTimeFormat("en-GB", {
     dateStyle: "medium",
     timeStyle: "short",
     timeZone: "UTC",
@@ -12,15 +13,15 @@ function formatDate(value: string) {
 
 const statusMeta = {
   PENDING: {
-    label: "Procesando",
+    label: "Processing",
     colorPalette: "yellow",
   },
   SUCCESS: {
-    label: "Entregado",
+    label: "Delivered",
     colorPalette: "green",
   },
   FAILED: {
-    label: "Fallido",
+    label: "Failed",
     colorPalette: "red",
   },
 } satisfies Record<
@@ -41,8 +42,8 @@ export function NotificationLogList({ logs }: { logs: NotificationLog[] }) {
         color="gray.400"
         lineHeight="1.7"
       >
-        Aun no hay entregas registradas. Envia una notificacion para ver el
-        historial por usuario y canal.
+        No delivery rows yet. Send a notification to see per-user and per-channel
+        history.
       </Box>
     );
   }
@@ -50,7 +51,7 @@ export function NotificationLogList({ logs }: { logs: NotificationLog[] }) {
   return (
     <Stack gap={3.5}>
       {logs.map((log) => {
-        const isPreparing = log.id.startsWith("optimistic-");
+        const isPreparing = isOptimisticLogId(log.id);
 
         return (
           <Box
@@ -72,11 +73,11 @@ export function NotificationLogList({ logs }: { logs: NotificationLog[] }) {
               letterSpacing="0.22em"
               textTransform="uppercase"
             >
-              <span>{log.category_name ?? "Categoria eliminada"}</span>
+              <span>{log.category_name ?? "Unknown category"}</span>
               <Box as="span" w="5px" h="5px" rounded="full" bg="teal.300" />
               <span>
                 {log.channel_name ??
-                  (isPreparing ? "Preparando canales" : "Canal no disponible")}
+                  (isPreparing ? "Resolving channels" : "Channel unavailable")}
               </span>
               <Badge
                 colorPalette={statusMeta[log.status].colorPalette}
@@ -115,10 +116,10 @@ export function NotificationLogList({ logs }: { logs: NotificationLog[] }) {
             >
               <span>
                 {log.user_name
-                  ? `Para ${log.user_name}`
+                  ? `To ${log.user_name}`
                   : isPreparing
-                    ? "Preparando entregas"
-                    : "Entrega sin usuario"}
+                    ? "Preparing deliveries"
+                    : "No user on log"}
               </span>
               <time dateTime={log.created_at}>{formatDate(log.created_at)}</time>
             </Flex>

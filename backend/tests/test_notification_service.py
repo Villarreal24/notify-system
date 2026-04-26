@@ -296,9 +296,7 @@ async def test_notification_service_processes_pending_logs_as_batch() -> None:
 
     assert log_repository.status_updates[0]["status"] == LogStatus.SUCCESS
     assert log_repository.status_updates[1]["status"] == LogStatus.FAILED
-    assert "Simulated provider outage" in str(
-        log_repository.status_updates[1]["error_message"]
-    )
+    assert "simulated" in str(log_repository.status_updates[1]["error_message"]).lower()
     assert session.commits == 1
     assert session.rollbacks == 0
 
@@ -333,9 +331,7 @@ async def test_notification_service_marks_single_delivery_log_failed() -> None:
     assert delivered_log is None
     assert log_repository.status_updates[0]["log_id"] == log.id
     assert log_repository.status_updates[0]["status"] == LogStatus.FAILED
-    assert "Simulated provider outage" in str(
-        log_repository.status_updates[0]["error_message"]
-    )
+    assert "simulated" in str(log_repository.status_updates[0]["error_message"]).lower()
     assert session.commits == 1
     assert session.rollbacks == 1
 

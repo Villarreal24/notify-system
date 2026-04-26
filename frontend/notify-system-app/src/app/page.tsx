@@ -4,20 +4,25 @@ import { getCategories, getNotificationLogs } from "@/lib/api";
 export default async function Home() {
   const [categoriesResult, logsResult] = await Promise.allSettled([
     getCategories(),
-    getNotificationLogs(),
+    getNotificationLogs(100),
   ]);
 
   const categories =
     categoriesResult.status === "fulfilled" ? categoriesResult.value : [];
   const logs = logsResult.status === "fulfilled" ? logsResult.value : [];
+  const categoriesError =
+    categoriesResult.status === "rejected"
+      ? "Could not load categories. Check that the API is running and the database is migrated and seeded."
+      : null;
   const logsError =
     logsResult.status === "rejected"
-      ? "No se pudo cargar el historial de logs. Revisa la API o la migracion de la base de datos."
+      ? "Could not load delivery history. Check that the API is running and the database is ready."
       : null;
 
   return (
     <NotificationDashboard
       categories={categories}
+      categoriesError={categoriesError}
       logs={logs}
       logsError={logsError}
     />

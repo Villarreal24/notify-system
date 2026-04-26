@@ -8,18 +8,16 @@ import { NotificationForm } from "@/components/notification-form";
 import { NotificationLogList } from "@/components/notification-log-list";
 import { SystemStats } from "@/components/system-stats";
 import type { Category, NotificationLog } from "@/lib/api";
-
-export type OptimisticLogAction =
-  | { type: "add"; log: NotificationLog }
-  | { type: "confirmMany"; temporaryId: string; logs: NotificationLog[] }
-  | { type: "rollback"; temporaryId: string };
+import type { OptimisticLogAction } from "@/lib/notification-types";
 
 export function NotificationDashboard({
   categories,
+  categoriesError,
   logs,
   logsError,
 }: {
   categories: Category[];
+  categoriesError?: string | null;
   logs: NotificationLog[];
   logsError?: string | null;
 }) {
@@ -47,6 +45,10 @@ export function NotificationDashboard({
         ...currentLogs.filter((log) => log.id !== action.log.id),
       ];
     },
+  );
+
+  const confirmedLogs = optimisticLogs.filter(
+    (log) => !log.id.startsWith("optimistic-"),
   );
 
   useEffect(() => {
@@ -140,14 +142,28 @@ export function NotificationDashboard({
             lineHeight="1.8"
           >
             Send messages by category and let the backend find subscribed users,
-            resolve their preferred channels and record each delivery.
+            resolve their preferred channels, and record each delivery.
           </Text>
           <Box mt={13} position="relative" zIndex={1}>
-            <SystemStats categories={categories} logs={optimisticLogs} />
+            <SystemStats categories={categories} logs={confirmedLogs} />
           </Box>
         </Box>
 
         <Stack gap={6} align="stretch">
+          {categoriesError ? (
+            <Box
+              rounded="2xl"
+              borderWidth="1px"
+              borderColor="red.300/35"
+              bg="red.950/35"
+              p={4}
+              color="red.100"
+              fontSize="sm"
+              lineHeight="1.6"
+            >
+              {categoriesError}
+            </Box>
+          ) : null}
           <NotificationForm
             categories={categories}
             onOptimisticLogAction={addOptimisticLog}

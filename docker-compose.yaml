@@ -1,7 +1,7 @@
 version: "3.8"
 
 services:
-  # Servicio de Base de Datos
+  # Local PostgreSQL for development
   db:
     image: postgres:15-alpine
     container_name: notification_db
@@ -13,11 +13,8 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      # Volumen para persistir los datos de Postgres localmente
       - postgres_data:/var/lib/postgresql/data
-      # MAGIA AQUÍ: Mapeamos tu archivo SQL generado previamente.
-      # Docker ejecutará este archivo automáticamente al crear el contenedor
-      # poblando tus tablas y datos mock de inmediato.
+      # First-time init only: mirrors Alembic revision; kept for a one-command local bootstrap
       - ./postgres_schema.sql:/docker-entrypoint-initdb.d/init.sql
 
 volumes:

@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 
 import { submitNotification } from "@/app/actions";
-import type { OptimisticLogAction } from "@/components/notification-dashboard";
+import type { OptimisticLogAction } from "@/lib/notification-types";
 import {
   initialNotificationSubmitState,
   type NotificationSubmitState,
@@ -36,9 +36,9 @@ export function useNotificationSubmit({
           message,
           category_id: categoryId,
           category_name: category?.name ?? null,
-          channel_id: null,
+          channel_id: null as number | null,
           channel_name: null,
-          user_id: null,
+          user_id: null as string | null,
           user_name: null,
           status: "PENDING",
           error_message: null,

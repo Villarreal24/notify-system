@@ -14,8 +14,10 @@ import {
 import { useFormStatus } from "react-dom";
 
 import { useNotificationSubmit } from "@/hooks/use-notification-submit";
-import type { OptimisticLogAction } from "@/components/notification-dashboard";
 import type { Category } from "@/lib/api";
+import type { OptimisticLogAction } from "@/lib/notification-types";
+
+const MESSAGE_MAX = 1_000;
 
 function SubmitButton() {
   const { pending } = useFormStatus();
@@ -24,7 +26,7 @@ function SubmitButton() {
     <Button
       type="submit"
       loading={pending}
-      loadingText="Encolando"
+      loadingText="Queueing"
       colorPalette="teal"
       size="lg"
       rounded="full"
@@ -34,7 +36,7 @@ function SubmitButton() {
       boxShadow="0 18px 40px rgba(20, 184, 166, 0.22)"
       _hover={{ filter: "brightness(1.05)", transform: "translateY(-1px)" }}
     >
-      Enviar notificacion
+      Send notification
     </Button>
   );
 }
@@ -79,7 +81,7 @@ export function NotificationForm({
         </Box>
 
         <Field.Root required>
-          <Field.Label color="gray.100">Categoria</Field.Label>
+          <Field.Label color="gray.100">Category</Field.Label>
           <NativeSelect.Root>
             <NativeSelect.Field
               name="category_id"
@@ -90,7 +92,7 @@ export function NotificationForm({
               minH="30px"
             >
               <option value="" disabled>
-                Selecciona una categoria
+                Select a category
               </option>
               {categories.map((category) => (
                 <option key={category.id} value={category.id}>
@@ -103,15 +105,16 @@ export function NotificationForm({
         </Field.Root>
 
         <Field.Root required>
-          <Field.Label color="gray.100">Mensaje</Field.Label>
+          <Field.Label color="gray.100">Message (max {MESSAGE_MAX} characters)</Field.Label>
           <Textarea
             name="message"
             required
             minH="70px"
+            maxLength={MESSAGE_MAX}
             bg="white"
             color="gray.950"
             rounded="xl"
-            placeholder="Ej. Markets close higher after a volatile session..."
+            placeholder="Example: markets closed higher after a volatile session..."
           />
         </Field.Root>
 

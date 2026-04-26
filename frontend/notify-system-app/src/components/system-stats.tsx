@@ -1,6 +1,7 @@
 import { Box, Grid, Text } from "@chakra-ui/react";
 
 import type { Category, NotificationLog } from "@/lib/api";
+import { isOptimisticLogId } from "@/lib/notification-types";
 
 export function SystemStats({
   categories,
@@ -9,11 +10,14 @@ export function SystemStats({
   categories: Category[];
   logs: NotificationLog[];
 }) {
-  const uniqueUsers = new Set(logs.map((log) => log.user_id).filter(Boolean)).size;
+  const withoutOptimistic = logs.filter((log) => !isOptimisticLogId(log.id));
+  const uniqueUsers = new Set(
+    withoutOptimistic.map((log) => log.user_id).filter(Boolean),
+  ).size;
   const stats = [
-    { label: "Categorias", value: categories.length },
-    { label: "Entregas", value: logs.length },
-    { label: "Usuarios", value: uniqueUsers },
+    { label: "Categories", value: categories.length },
+    { label: "Delivery rows", value: withoutOptimistic.length },
+    { label: "Users", value: uniqueUsers },
   ];
 
   return (

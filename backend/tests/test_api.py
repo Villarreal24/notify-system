@@ -157,6 +157,16 @@ def test_create_notification_returns_accepted(monkeypatch) -> None:
     assert delivered == [log_ids]
 
 
+def test_validation_error_returns_code() -> None:
+    with TestClient(app) as client:
+        response = client.post("/notifications", json={})
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body.get("code") == "VALIDATION_ERROR"
+    assert isinstance(body.get("detail"), list)
+
+
 def test_create_notification_rejects_unknown_category() -> None:
     app.dependency_overrides[get_notification_service] = override_notification_service
 
@@ -169,3 +179,6 @@ def test_create_notification_rejects_unknown_category() -> None:
     app.dependency_overrides.clear()
 
     assert response.status_code == 404
+    data = response.json()
+    assert data.get("code") == "CATEGORY_NOT_FOUND"
+    assert "999" in data.get("detail", "")

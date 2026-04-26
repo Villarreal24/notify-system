@@ -1,14 +1,16 @@
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
 
 from api.dependencies import (
     get_catalog_service,
     get_log_service,
     get_notification_service,
 )
-from core.database import async_session_factory
+from core.database import async_session_factory, get_session
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 from repositories.categories import CategoryRepository
 from repositories.logs import NotificationLogRepository
 from repositories.users import UserRepository
@@ -16,7 +18,7 @@ from schemas.catalog import CategoryRead, ChannelRead
 from schemas.notifications import NotificationCreate, NotificationLogRead
 from services.catalog import CatalogService
 from services.logs import LogService, notification_log_to_read_model
-from services.notifications import CategoryNotFoundError, NotificationService
+from services.notifications import NotificationService
 from strategies.factory import ChannelFactory
 
 router = APIRouter()
@@ -40,8 +42,11 @@ async def deliver_notification_background(log_ids: list[UUID]) -> None:
 
 
 @router.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok"}
+async def health(
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, str]:
+    await session.execute(text("SELECT 1"))
+    return {"status": "ok", "database": "connected"}
 
 
 @router.get("/categories", response_model=list[CategoryRead])
@@ -84,8 +89,6 @@ async def create_notification(
             message=payload.message,
         )
         await service.commit()
-    except CategoryNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except Exception:
         await service.rollback()
         raise
