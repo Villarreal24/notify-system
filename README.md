@@ -59,7 +59,8 @@ Delivery runs in a background task. Batched sends use a semaphore sized from set
 
 ## API contracts (high level)
 
-- `GET /health` — liveness; includes a `SELECT 1` database check.
+- `GET /health` — liveness: no database call; use for Kubernetes liveness so brief DB outages do not restart the pod.
+- `GET /health/ready` — readiness: `SELECT 1`; returns 503 if the database is unavailable; use for readiness and dependency checks.
 - `GET /categories`, `GET /channels`
 - `GET /notification-logs?limit=` (1–100)
 - `POST /notifications` — 202, returns created log rows in `PENDING` state

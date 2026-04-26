@@ -104,6 +104,13 @@ async def override_notification_service() -> AsyncIterator[FakeNotificationServi
     yield FakeNotificationService()
 
 
+def test_health_liveness_does_not_require_database() -> None:
+    with TestClient(app) as client:
+        response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
 def test_read_routes_return_catalogs() -> None:
     app.dependency_overrides[get_catalog_service] = override_catalog_service
     app.dependency_overrides[get_log_service] = override_log_service

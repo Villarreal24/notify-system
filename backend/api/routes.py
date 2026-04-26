@@ -1,7 +1,7 @@
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 
 from api.dependencies import (
     get_catalog_service,
@@ -10,6 +10,7 @@ from api.dependencies import (
 )
 from core.database import async_session_factory, get_session
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from repositories.categories import CategoryRepository
 from repositories.logs import NotificationLogRepository
@@ -42,10 +43,21 @@ async def deliver_notification_background(log_ids: list[UUID]) -> None:
 
 
 @router.get("/health")
-async def health(
+async def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@router.get("/health/ready")
+async def health_ready(
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, str]:
-    await session.execute(text("SELECT 1"))
+    try:
+        await session.execute(text("SELECT 1"))
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database unavailable",
+        ) from exc
     return {"status": "ok", "database": "connected"}
 
 
