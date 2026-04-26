@@ -58,8 +58,8 @@ class FakeLogRepository:
         *,
         message: str,
         category_id: int,
-        channel_id: int | None = None,
-        user_id: UUID | None = None,
+        channel_id: int,
+        user_id: UUID,
     ) -> SimpleNamespace:
         log_id = UUID(f"b1b2c3d4-0000-0000-0000-{len(self.records) + 1:012d}")
         record: dict[str, object] = {

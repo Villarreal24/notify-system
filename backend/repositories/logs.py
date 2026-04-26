@@ -43,8 +43,8 @@ class NotificationLogRepository:
         *,
         message: str,
         category_id: int,
-        channel_id: int | None = None,
-        user_id: UUID | None = None,
+        channel_id: int,
+        user_id: UUID,
     ) -> NotificationLog:
         log = NotificationLog(
             message=message,
