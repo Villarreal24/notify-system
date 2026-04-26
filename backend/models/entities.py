@@ -45,6 +45,7 @@ user_subscriptions = Table(
         primary_key=True,
     ),
     Column("created_at", DateTime(timezone=True), server_default=func.now()),
+    Index("idx_user_subs_category", "category_id"),
 )
 
 user_channels = Table(
@@ -123,6 +124,7 @@ class NotificationLog(Base):
     __table_args__ = (
         Index("ix_notification_logs_user_id", "user_id"),
         Index("ix_notification_logs_status_created", "status", "created_at"),
+        Index("idx_notification_logs_status", "status"),
     )
 
     id: Mapped[UUID] = mapped_column(
@@ -152,3 +154,10 @@ class NotificationLog(Base):
     category: Mapped[Category] = relationship()
     channel: Mapped[Channel] = relationship()
     user: Mapped[User] = relationship()
+
+
+# Match initial migration: btree on created_at DESC (autogenerate must not drop as "extra")
+Index(
+    "idx_notification_logs_created_at",
+    NotificationLog.__table__.c.created_at.desc(),
+)
