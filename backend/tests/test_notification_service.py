@@ -1,18 +1,26 @@
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 import pytest
 
-from models import LogStatus
+from models import Channel, LogStatus, User
+from repositories.categories import CategoryRepository
+from repositories.logs import NotificationLogRepository
+from repositories.users import UserRepository
 from services.notifications import CategoryNotFoundError, NotificationService
+from strategies.factory import ChannelFactory
 from strategies.notification_channel import SendResult
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class FakeCategoryRepository:
     def __init__(self, exists: bool = True) -> None:
         self.exists = exists
 
-    async def get_by_id(self, category_id: int) -> object | None:
+    async def get_by_id(self, category_id: int) -> SimpleNamespace | None:
         if not self.exists:
             return None
         return SimpleNamespace(id=category_id, name="Sports")
@@ -45,37 +53,59 @@ class FakeLogRepository:
         self.status_updates: list[dict[str, object]] = []
         self.logs_by_id: dict[UUID, SimpleNamespace] = {}
 
-    async def create(self, **kwargs: object) -> object:
+    async def create(
+        self,
+        *,
+        message: str,
+        category_id: int,
+        channel_id: int | None = None,
+        user_id: UUID | None = None,
+    ) -> SimpleNamespace:
         log_id = UUID(f"b1b2c3d4-0000-0000-0000-{len(self.records) + 1:012d}")
-        kwargs.setdefault("id", log_id)
-        kwargs.setdefault("channel_id", None)
-        kwargs.setdefault("user_id", None)
-        kwargs.setdefault("status", LogStatus.PENDING)
-        kwargs.setdefault("error_message", None)
-        self.records.append(kwargs)
-        log = SimpleNamespace(**kwargs)
+        record: dict[str, object] = {
+            "id": log_id,
+            "message": message,
+            "category_id": category_id,
+            "channel_id": channel_id,
+            "user_id": user_id,
+            "status": LogStatus.PENDING,
+            "error_message": None,
+        }
+        self.records.append(record)
+        log = SimpleNamespace(**record)
         self.logs_by_id[log.id] = log
         return log
 
-    async def get_by_id(self, log_id: UUID) -> object | None:
+    async def get_by_id(self, log_id: UUID) -> SimpleNamespace | None:
         return self.logs_by_id.get(log_id)
 
-    async def update_status(self, **kwargs: object) -> object:
-        self.status_updates.append(kwargs)
-        log = self.logs_by_id.get(kwargs["log_id"])
+    async def update_status(
+        self,
+        *,
+        log_id: UUID,
+        status: LogStatus,
+        error_message: str | None = None,
+    ) -> SimpleNamespace | None:
+        update: dict[str, object] = {
+            "log_id": log_id,
+            "status": status,
+            "error_message": error_message,
+        }
+        self.status_updates.append(update)
+        log = self.logs_by_id.get(log_id)
         if log is not None:
-            log.status = kwargs["status"]
-            log.error_message = kwargs["error_message"]
-        return SimpleNamespace(**kwargs)
+            log.status = status
+            log.error_message = error_message
+        return log
 
 
 class FakeSuccessStrategy:
     channel_name = "E-Mail"
 
-    async def send(self, *, user: object, message: str) -> SendResult:
+    async def send(self, *, user: User, message: str) -> SendResult:
         return SendResult(
             channel_name=self.channel_name,
-            recipient=getattr(user, "email", str(user.id)),
+            recipient=user.email,
             delivered=True,
             detail="ok",
         )
@@ -89,7 +119,7 @@ class FakeSuccessChannelFactory:
 class FakeFailingStrategy:
     channel_name = "E-Mail"
 
-    async def send(self, *, user: object, message: str) -> SendResult:
+    async def send(self, *, user: User, message: str) -> SendResult:
         raise RuntimeError("Simulated provider outage")
 
 
@@ -117,12 +147,31 @@ class FakeSession:
         self.rollbacks += 1
 
 
+def make_service(
+    *,
+    category_repository: FakeCategoryRepository | None = None,
+    user_repository: FakeUserRepository | None = None,
+    log_repository: FakeLogRepository | None = None,
+    channel_factory: (
+        FakeSuccessChannelFactory | FakeFailingChannelFactory | FakeMixedChannelFactory | None
+    ) = None,
+    session: FakeSession | None = None,
+) -> NotificationService:
+    return NotificationService(
+        category_repository=cast(
+            CategoryRepository, category_repository or FakeCategoryRepository()
+        ),
+        user_repository=cast(UserRepository, user_repository or FakeUserRepository()),
+        log_repository=cast(NotificationLogRepository, log_repository or FakeLogRepository()),
+        channel_factory=cast(ChannelFactory, channel_factory or FakeSuccessChannelFactory()),
+        session=cast("AsyncSession | None", session),
+    )
+
+
 @pytest.mark.asyncio
 async def test_notification_service_delivers_to_subscribed_user_channels() -> None:
     log_repository = FakeLogRepository()
-    service = NotificationService(
-        category_repository=FakeCategoryRepository(),
-        user_repository=FakeUserRepository(),
+    service = make_service(
         log_repository=log_repository,
         channel_factory=FakeSuccessChannelFactory(),
     )
@@ -137,9 +186,7 @@ async def test_notification_service_delivers_to_subscribed_user_channels() -> No
 @pytest.mark.asyncio
 async def test_notification_service_creates_submission_log() -> None:
     log_repository = FakeLogRepository()
-    service = NotificationService(
-        category_repository=FakeCategoryRepository(),
-        user_repository=FakeUserRepository(),
+    service = make_service(
         log_repository=log_repository,
         channel_factory=FakeSuccessChannelFactory(),
     )
@@ -151,6 +198,9 @@ async def test_notification_service_creates_submission_log() -> None:
 
     assert len(logs) == 3
     assert logs[0].message == "Final score alert"
+    assert logs[0].category is not None
+    assert logs[0].user is not None
+    assert logs[0].channel is not None
     assert logs[0].category.name == "Sports"
     assert logs[0].user.email == "alice@example.com"
     assert logs[0].channel.name == "E-Mail"
@@ -167,9 +217,7 @@ async def test_notification_service_creates_submission_log() -> None:
 async def test_notification_service_marks_single_delivery_log_success() -> None:
     log_repository = FakeLogRepository()
     session = FakeSession()
-    service = NotificationService(
-        category_repository=FakeCategoryRepository(),
-        user_repository=FakeUserRepository(),
+    service = make_service(
         log_repository=log_repository,
         channel_factory=FakeSuccessChannelFactory(),
         session=session,
@@ -180,12 +228,15 @@ async def test_notification_service_marks_single_delivery_log_success() -> None:
         channel_id=2,
         user_id=UUID("a1b2c3d4-0000-0000-0000-000000000001"),
     )
-    log.user = SimpleNamespace(
-        id=log.user_id,
-        email="alice@example.com",
-        phone_number="+1234567890",
+    log.user = cast(
+        User,
+        SimpleNamespace(
+            id=log.user_id,
+            email="alice@example.com",
+            phone_number="+1234567890",
+        ),
     )
-    log.channel = SimpleNamespace(id=2, name="E-Mail")
+    log.channel = cast(Channel, SimpleNamespace(id=2, name="E-Mail"))
 
     delivered_log = await service.deliver_pending_log(log_id=log.id)
 
@@ -205,9 +256,7 @@ async def test_notification_service_marks_single_delivery_log_success() -> None:
 async def test_notification_service_processes_pending_logs_as_batch() -> None:
     log_repository = FakeLogRepository()
     session = FakeSession()
-    service = NotificationService(
-        category_repository=FakeCategoryRepository(),
-        user_repository=FakeUserRepository(),
+    service = make_service(
         log_repository=log_repository,
         channel_factory=FakeMixedChannelFactory(),
         session=session,
@@ -218,24 +267,30 @@ async def test_notification_service_processes_pending_logs_as_batch() -> None:
         channel_id=2,
         user_id=UUID("a1b2c3d4-0000-0000-0000-000000000001"),
     )
-    email_log.user = SimpleNamespace(
-        id=email_log.user_id,
-        email="alice@example.com",
-        phone_number="+1234567890",
+    email_log.user = cast(
+        User,
+        SimpleNamespace(
+            id=email_log.user_id,
+            email="alice@example.com",
+            phone_number="+1234567890",
+        ),
     )
-    email_log.channel = SimpleNamespace(id=2, name="E-Mail")
+    email_log.channel = cast(Channel, SimpleNamespace(id=2, name="E-Mail"))
     push_log = await log_repository.create(
         message="Final score alert",
         category_id=1,
         channel_id=3,
         user_id=UUID("a1b2c3d4-0000-0000-0000-000000000003"),
     )
-    push_log.user = SimpleNamespace(
-        id=push_log.user_id,
-        email="charlie@example.com",
-        phone_number="+1122334455",
+    push_log.user = cast(
+        User,
+        SimpleNamespace(
+            id=push_log.user_id,
+            email="charlie@example.com",
+            phone_number="+1122334455",
+        ),
     )
-    push_log.channel = SimpleNamespace(id=3, name="Push Notification")
+    push_log.channel = cast(Channel, SimpleNamespace(id=3, name="Push Notification"))
 
     await service.deliver_pending_logs(log_ids=[email_log.id, push_log.id])
 
@@ -252,9 +307,7 @@ async def test_notification_service_processes_pending_logs_as_batch() -> None:
 async def test_notification_service_marks_single_delivery_log_failed() -> None:
     log_repository = FakeLogRepository()
     session = FakeSession()
-    service = NotificationService(
-        category_repository=FakeCategoryRepository(),
-        user_repository=FakeUserRepository(),
+    service = make_service(
         log_repository=log_repository,
         channel_factory=FakeFailingChannelFactory(),
         session=session,
@@ -265,12 +318,15 @@ async def test_notification_service_marks_single_delivery_log_failed() -> None:
         channel_id=2,
         user_id=UUID("a1b2c3d4-0000-0000-0000-000000000001"),
     )
-    log.user = SimpleNamespace(
-        id=log.user_id,
-        email="alice@example.com",
-        phone_number="+1234567890",
+    log.user = cast(
+        User,
+        SimpleNamespace(
+            id=log.user_id,
+            email="alice@example.com",
+            phone_number="+1234567890",
+        ),
     )
-    log.channel = SimpleNamespace(id=2, name="E-Mail")
+    log.channel = cast(Channel, SimpleNamespace(id=2, name="E-Mail"))
 
     delivered_log = await service.deliver_pending_log(log_id=log.id)
 
@@ -286,10 +342,8 @@ async def test_notification_service_marks_single_delivery_log_failed() -> None:
 
 @pytest.mark.asyncio
 async def test_notification_service_rejects_unknown_category() -> None:
-    service = NotificationService(
+    service = make_service(
         category_repository=FakeCategoryRepository(exists=False),
-        user_repository=FakeUserRepository(),
-        log_repository=FakeLogRepository(),
         channel_factory=FakeSuccessChannelFactory(),
     )
 

@@ -1,21 +1,30 @@
 from types import SimpleNamespace
+from typing import cast
 from uuid import UUID
 
 import pytest
 
+from models import User
 from strategies.factory import ChannelFactory, UnknownChannelError
 from strategies import email as email_module
 from strategies import push as push_module
 from strategies import sms as sms_module
 
 
+def make_user() -> User:
+    return cast(
+        User,
+        SimpleNamespace(
+            id=UUID("a1b2c3d4-0000-0000-0000-000000000001"),
+            email="alice@example.com",
+            phone_number="+1234567890",
+        ),
+    )
+
+
 @pytest.mark.asyncio
 async def test_channel_factory_resolves_seeded_channels(monkeypatch) -> None:
-    user = SimpleNamespace(
-        id=UUID("a1b2c3d4-0000-0000-0000-000000000001"),
-        email="alice@example.com",
-        phone_number="+1234567890",
-    )
+    user = make_user()
     sleep_calls: list[float] = []
 
     async def fake_sleep(seconds: float) -> None:
@@ -45,11 +54,7 @@ async def test_channel_factory_resolves_seeded_channels(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_channel_strategy_can_simulate_provider_failure(monkeypatch) -> None:
-    user = SimpleNamespace(
-        id=UUID("a1b2c3d4-0000-0000-0000-000000000001"),
-        email="alice@example.com",
-        phone_number="+1234567890",
-    )
+    user = make_user()
     factory = ChannelFactory()
     monkeypatch.setattr(sms_module.random, "random", lambda: 0.01)
 
