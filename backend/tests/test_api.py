@@ -170,6 +170,48 @@ def test_validation_error_returns_code() -> None:
     assert isinstance(body.get("detail"), list)
 
 
+def test_create_notification_rejects_empty_message_with_structured_422() -> None:
+    with TestClient(app) as client:
+        response = client.post(
+            "/notifications",
+            json={"category_id": 1, "message": ""},
+        )
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body.get("code") == "VALIDATION_ERROR"
+    assert isinstance(body.get("detail"), list)
+    assert body["detail"][0]["loc"][-1] == "message"
+
+
+def test_create_notification_rejects_invalid_category_id_with_structured_422() -> None:
+    with TestClient(app) as client:
+        response = client.post(
+            "/notifications",
+            json={"category_id": 0, "message": "Sports update"},
+        )
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body.get("code") == "VALIDATION_ERROR"
+    assert isinstance(body.get("detail"), list)
+    assert body["detail"][0]["loc"][-1] == "category_id"
+
+
+def test_create_notification_rejects_too_long_message_with_structured_422() -> None:
+    with TestClient(app) as client:
+        response = client.post(
+            "/notifications",
+            json={"category_id": 1, "message": "x" * 1001},
+        )
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body.get("code") == "VALIDATION_ERROR"
+    assert isinstance(body.get("detail"), list)
+    assert body["detail"][0]["loc"][-1] == "message"
+
+
 def test_create_notification_rejects_unknown_category() -> None:
     app.dependency_overrides[get_notification_service] = override_notification_service
 

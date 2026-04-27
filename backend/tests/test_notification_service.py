@@ -48,6 +48,11 @@ class FakeUserRepository:
         ]
 
 
+class FakeEmptyUserRepository:
+    async def list_by_category(self, category_id: int) -> list[SimpleNamespace]:
+        return []
+
+
 class FakeLogRepository:
     def __init__(self) -> None:
         self.records: list[dict[str, object]] = []
@@ -181,7 +186,7 @@ class FakeSession:
 def make_service(
     *,
     category_repository: FakeCategoryRepository | None = None,
-    user_repository: FakeUserRepository | None = None,
+    user_repository: FakeUserRepository | FakeEmptyUserRepository | None = None,
     log_repository: FakeLogRepository | None = None,
     channel_factory: (
         FakeSuccessChannelFactory
@@ -231,6 +236,24 @@ async def test_notification_service_creates_submission_log() -> None:
     }
     assert {record["channel_id"] for record in log_repository.records} == {2, 3}
     assert log_repository.records[0]["status"] == LogStatus.PENDING
+
+
+@pytest.mark.asyncio
+async def test_notification_service_creates_no_logs_when_category_has_no_subscribers() -> None:
+    log_repository = FakeLogRepository()
+    service = make_service(
+        user_repository=FakeEmptyUserRepository(),
+        log_repository=log_repository,
+        channel_factory=FakeSuccessChannelFactory(),
+    )
+
+    logs = await service.create_pending_delivery_logs(
+        category_id=1,
+        message="Final score alert",
+    )
+
+    assert logs == []
+    assert log_repository.records == []
 
 
 @pytest.mark.asyncio
