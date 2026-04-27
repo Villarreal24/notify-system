@@ -47,8 +47,14 @@ async def test_channel_factory_resolves_seeded_channels(monkeypatch) -> None:
 
     assert sms.delivered is True
     assert sms.recipient == "+1234567890"
+    assert sms.detail == "Simulated SMS sent to +1234567890: Game starts"
     assert email.recipient == "alice@example.com"
+    assert email.detail == "Simulated e-mail sent to alice@example.com: Market alert"
     assert push.recipient == str(user.id)
+    assert (
+        push.detail
+        == f"Simulated push notification sent to user {user.id}: New movie"
+    )
     assert sleep_calls == [1.0, 0.5, 1.0]
 
 
