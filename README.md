@@ -6,7 +6,7 @@ Full-stack system for sending category-based notifications to subscribed users a
 
 - **Backend:** FastAPI, async SQLAlchemy, PostgreSQL, Pydantic, Alembic, Tenacity.
 - **Frontend:** Next.js App Router, React 19, TypeScript, Tailwind CSS, and Chakra UI.
-- **Database:** PostgreSQL. **SQLAlchemy models + Alembic** are the source of truth. `postgres_schema.sql` is only for Docker’s first-time init to match the current revision.
+- **Database:** PostgreSQL. **SQLAlchemy models + Alembic** are the source of truth.
 
 ## Architecture
 
