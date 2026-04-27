@@ -14,3 +14,4 @@ frontend/notify-system-app/.env.*
 !frontend/notify-system-app/.env.example
 .venv
 venv
+.DS_Store

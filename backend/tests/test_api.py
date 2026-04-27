@@ -41,10 +41,6 @@ class FakeNotificationService:
         self.committed = False
         self.rolled_back = False
 
-    async def ensure_category_exists(self, category_id: int) -> None:
-        if category_id == 999:
-            raise CategoryNotFoundError("Category 999 does not exist")
-
     async def create_pending_delivery_logs(
         self, *, category_id: int, message: str
     ) -> list[object]:
