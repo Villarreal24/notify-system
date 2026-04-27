@@ -9,6 +9,7 @@ import {
   type NotificationSubmitState,
 } from "@/lib/notification-submit-state";
 import type { Category } from "@/lib/api";
+import { buildOptimisticLog } from "@/lib/optimistic-notifications";
 
 type UseNotificationSubmitOptions = {
   categories: Category[];
@@ -25,25 +26,18 @@ export function useNotificationSubmit({
   ) => {
     const categoryId = Number(formData.get("category_id"));
     const message = String(formData.get("message") ?? "").trim();
-    const category = categories.find((item) => item.id === categoryId);
 
     if (Number.isInteger(categoryId) && categoryId > 0 && message) {
       const temporaryId = `optimistic-${crypto.randomUUID()}`;
       onOptimisticLogAction({
         type: "add",
-        log: {
-          id: temporaryId,
+        log: buildOptimisticLog({
+          categories,
+          categoryId,
           message,
-          category_id: categoryId,
-          category_name: category?.name ?? null,
-          channel_id: null as number | null,
-          channel_name: null,
-          user_id: null as string | null,
-          user_name: null,
-          status: "PENDING",
-          error_message: null,
-          created_at: new Date().toISOString(),
-        },
+          temporaryId,
+          createdAt: new Date().toISOString(),
+        }),
       });
 
       const result = await submitNotification(previousState, formData);

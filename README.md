@@ -28,6 +28,21 @@ frontend/notify-system-app/
   src/lib/        API client, shared types, error types
 ```
 
+## Design patterns
+
+The implementation keeps the challenge patterns explicit and easy to inspect:
+
+- **Strategy:** `SmsStrategy`, `EmailStrategy`, and `PushStrategy` isolate channel-specific delivery behavior under `backend/strategies/`.
+- **Factory:** `ChannelFactory` selects the right delivery strategy from each user's channel preference.
+- **Repository:** `backend/repositories/` owns SQLAlchemy data access so services do not query the ORM directly.
+- **Dependency injection:** `backend/api/dependencies.py` wires sessions, repositories, services, and strategies through FastAPI `Depends()`.
+- **DTO / schema layer:** `backend/schemas/` exposes Pydantic contracts separately from SQLAlchemy models.
+- **Service layer:** `NotificationService`, `CatalogService`, and `LogService` keep business use cases outside route handlers.
+- **Frontend container / presentational split:** `src/app/page.tsx` loads server data, while client components render interaction and Chakra UI.
+- **Server Action boundary:** `submitNotification` validates form input and owns the mutation path from the UI to the API.
+- **Optimistic UI:** `useOptimistic`, `useNotificationSubmit`, and `src/lib/optimistic-notifications.ts` keep pending UI state explicit and testable.
+- **Typed API wrapper:** `ApiError` preserves HTTP status, API code, and response detail for user-facing error mapping.
+
 ## Notification flow
 
 `POST /notifications` does not deliver on the request thread. The handler validates the payload, loads subscribers in the **active** (non–soft-deleted) user set, and creates one `PENDING` `notification_log` per user and preferred channel. The API responds with **202 Accepted** and the list of created logs. FastAPI `BackgroundTasks` then runs the delivery job with controlled concurrency and bounded retries (see `NotificationService`).
@@ -98,7 +113,7 @@ Errors from the app use a consistent shape where applicable:
    ```bash
    cd frontend/notify-system-app
    bun install
-   bun dev
+   bun run dev
    ```
 
    App: `http://localhost:3000`
@@ -116,15 +131,15 @@ cd backend
 
 ```bash
 cd frontend/notify-system-app
-npm run lint
-npm test
-npm run build
+bun run lint
+bun test
+bun run build
 ```
 
 ## Technical decisions (evaluation summary)
 
 - **Layering:** routes delegate to services; services use repositories; no raw SQL in routes.
-- **Patterns:** strategy + factory for channels, repository abstraction, DTOs with Pydantic, dependency injection via `Depends()`.
+- **Patterns:** strategy + factory for channels, repository abstraction, DTOs with Pydantic, dependency injection via `Depends()`, Server Actions, custom hooks, and optimistic UI.
 - **DB:** foreign keys, indexes on `notification_logs (user_id)`, `(status, created_at)`, and `created_at DESC` for history; `message` length aligned to API validation; Alembic for evolution.
 - **Security posture:** the challenge does not require authentication; the API should still not leak internal errors to clients, and `error_message` in the DB is sanitized.
 - **Frontend:** `useActionState` / `useOptimistic` without global state for business data; `ApiError` maps HTTP + JSON codes to user messages; all UI copy is English.

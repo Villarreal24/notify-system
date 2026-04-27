@@ -8,6 +8,7 @@ import { NotificationForm } from "@/components/notification-form";
 import { NotificationLogList } from "@/components/notification-log-list";
 import { SystemStats } from "@/components/system-stats";
 import type { Category, NotificationLog } from "@/lib/api";
+import { applyOptimisticLogAction } from "@/lib/optimistic-notifications";
 import type { OptimisticLogAction } from "@/lib/notification-types";
 
 export function NotificationDashboard({
@@ -25,26 +26,8 @@ export function NotificationDashboard({
   const lastRefreshAt = useRef(0);
   const [optimisticLogs, addOptimisticLog] = useOptimistic(
     logs,
-    (currentLogs, action: OptimisticLogAction) => {
-      if (action.type === "rollback") {
-        return currentLogs.filter((log) => log.id !== action.temporaryId);
-      }
-
-      if (action.type === "confirmMany") {
-        const confirmedIds = new Set(action.logs.map((log) => log.id));
-        return [
-          ...action.logs,
-          ...currentLogs.filter(
-            (log) => log.id !== action.temporaryId && !confirmedIds.has(log.id),
-          ),
-        ];
-      }
-
-      return [
-        action.log,
-        ...currentLogs.filter((log) => log.id !== action.log.id),
-      ];
-    },
+    (currentLogs, action: OptimisticLogAction) =>
+      applyOptimisticLogAction(currentLogs, action),
   );
 
   const confirmedLogs = optimisticLogs.filter(

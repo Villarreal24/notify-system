@@ -1,10 +1,11 @@
+import asyncio
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 import pytest
 
-from models import Channel, LogStatus, User
+from models import LogStatus, User
 from repositories.categories import CategoryRepository
 from repositories.logs import NotificationLogRepository
 from repositories.users import UserRepository
@@ -135,6 +136,36 @@ class FakeMixedChannelFactory:
         return FakeSuccessStrategy()
 
 
+class FakeConcurrentStrategy:
+    channel_name = "E-Mail"
+
+    def __init__(self) -> None:
+        self.in_flight = 0
+        self.max_in_flight = 0
+
+    async def send(self, *, user: User, message: str) -> SendResult:
+        self.in_flight += 1
+        self.max_in_flight = max(self.max_in_flight, self.in_flight)
+        try:
+            await asyncio.sleep(0.01)
+            return SendResult(
+                channel_name=self.channel_name,
+                recipient=user.email,
+                delivered=True,
+                detail="ok",
+            )
+        finally:
+            self.in_flight -= 1
+
+
+class FakeConcurrentChannelFactory:
+    def __init__(self) -> None:
+        self.strategy = FakeConcurrentStrategy()
+
+    def get(self, channel_name: str) -> FakeConcurrentStrategy:
+        return self.strategy
+
+
 class FakeSession:
     def __init__(self) -> None:
         self.commits = 0
@@ -153,7 +184,11 @@ def make_service(
     user_repository: FakeUserRepository | None = None,
     log_repository: FakeLogRepository | None = None,
     channel_factory: (
-        FakeSuccessChannelFactory | FakeFailingChannelFactory | FakeMixedChannelFactory | None
+        FakeSuccessChannelFactory
+        | FakeFailingChannelFactory
+        | FakeMixedChannelFactory
+        | FakeConcurrentChannelFactory
+        | None
     ) = None,
     session: FakeSession | None = None,
 ) -> NotificationService:
@@ -166,21 +201,6 @@ def make_service(
         channel_factory=cast(ChannelFactory, channel_factory or FakeSuccessChannelFactory()),
         session=cast("AsyncSession | None", session),
     )
-
-
-@pytest.mark.asyncio
-async def test_notification_service_delivers_to_subscribed_user_channels() -> None:
-    log_repository = FakeLogRepository()
-    service = make_service(
-        log_repository=log_repository,
-        channel_factory=FakeSuccessChannelFactory(),
-    )
-
-    summary = await service.deliver(category_id=1, message="Final score alert")
-
-    assert summary.recipients == 2
-    assert summary.deliveries == 3
-    assert len(log_repository.records) == 0
 
 
 @pytest.mark.asyncio
@@ -214,45 +234,6 @@ async def test_notification_service_creates_submission_log() -> None:
 
 
 @pytest.mark.asyncio
-async def test_notification_service_marks_single_delivery_log_success() -> None:
-    log_repository = FakeLogRepository()
-    session = FakeSession()
-    service = make_service(
-        log_repository=log_repository,
-        channel_factory=FakeSuccessChannelFactory(),
-        session=session,
-    )
-    log = await log_repository.create(
-        message="Final score alert",
-        category_id=1,
-        channel_id=2,
-        user_id=UUID("a1b2c3d4-0000-0000-0000-000000000001"),
-    )
-    log.user = cast(
-        User,
-        SimpleNamespace(
-            id=log.user_id,
-            email="alice@example.com",
-            phone_number="+1234567890",
-        ),
-    )
-    log.channel = cast(Channel, SimpleNamespace(id=2, name="E-Mail"))
-
-    delivered_log = await service.deliver_pending_log(log_id=log.id)
-
-    assert delivered_log is log
-    assert log_repository.status_updates == [
-        {
-            "log_id": log.id,
-            "status": LogStatus.SUCCESS,
-            "error_message": None,
-        }
-    ]
-    assert session.commits == 1
-    assert session.rollbacks == 0
-
-
-@pytest.mark.asyncio
 async def test_notification_service_processes_pending_logs_as_batch() -> None:
     log_repository = FakeLogRepository()
     session = FakeSession()
@@ -261,79 +242,47 @@ async def test_notification_service_processes_pending_logs_as_batch() -> None:
         channel_factory=FakeMixedChannelFactory(),
         session=session,
     )
-    email_log = await log_repository.create(
-        message="Final score alert",
+    logs = await service.create_pending_delivery_logs(
         category_id=1,
-        channel_id=2,
-        user_id=UUID("a1b2c3d4-0000-0000-0000-000000000001"),
-    )
-    email_log.user = cast(
-        User,
-        SimpleNamespace(
-            id=email_log.user_id,
-            email="alice@example.com",
-            phone_number="+1234567890",
-        ),
-    )
-    email_log.channel = cast(Channel, SimpleNamespace(id=2, name="E-Mail"))
-    push_log = await log_repository.create(
         message="Final score alert",
-        category_id=1,
-        channel_id=3,
-        user_id=UUID("a1b2c3d4-0000-0000-0000-000000000003"),
     )
-    push_log.user = cast(
-        User,
-        SimpleNamespace(
-            id=push_log.user_id,
-            email="charlie@example.com",
-            phone_number="+1122334455",
-        ),
-    )
-    push_log.channel = cast(Channel, SimpleNamespace(id=3, name="Push Notification"))
 
-    await service.deliver_pending_logs(log_ids=[email_log.id, push_log.id])
+    await service.deliver_pending_logs(log_ids=[log.id for log in logs])
 
-    assert log_repository.status_updates[0]["status"] == LogStatus.SUCCESS
-    assert log_repository.status_updates[1]["status"] == LogStatus.FAILED
-    assert "simulated" in str(log_repository.status_updates[1]["error_message"]).lower()
+    assert len(log_repository.status_updates) == 3
+    assert [update["status"] for update in log_repository.status_updates] == [
+        LogStatus.SUCCESS,
+        LogStatus.SUCCESS,
+        LogStatus.FAILED,
+    ]
+    assert "simulated" in str(log_repository.status_updates[2]["error_message"]).lower()
     assert session.commits == 1
     assert session.rollbacks == 0
 
 
 @pytest.mark.asyncio
-async def test_notification_service_marks_single_delivery_log_failed() -> None:
+async def test_notification_service_delivers_batch_concurrently() -> None:
     log_repository = FakeLogRepository()
     session = FakeSession()
+    channel_factory = FakeConcurrentChannelFactory()
     service = make_service(
         log_repository=log_repository,
-        channel_factory=FakeFailingChannelFactory(),
+        channel_factory=channel_factory,
         session=session,
     )
-    log = await log_repository.create(
-        message="Final score alert",
+    logs = await service.create_pending_delivery_logs(
         category_id=1,
-        channel_id=2,
-        user_id=UUID("a1b2c3d4-0000-0000-0000-000000000001"),
+        message="Final score alert",
     )
-    log.user = cast(
-        User,
-        SimpleNamespace(
-            id=log.user_id,
-            email="alice@example.com",
-            phone_number="+1234567890",
-        ),
-    )
-    log.channel = cast(Channel, SimpleNamespace(id=2, name="E-Mail"))
 
-    delivered_log = await service.deliver_pending_log(log_id=log.id)
+    await service.deliver_pending_logs(log_ids=[log.id for log in logs])
 
-    assert delivered_log is None
-    assert log_repository.status_updates[0]["log_id"] == log.id
-    assert log_repository.status_updates[0]["status"] == LogStatus.FAILED
-    assert "simulated" in str(log_repository.status_updates[0]["error_message"]).lower()
+    assert channel_factory.strategy.max_in_flight > 1
+    assert {update["status"] for update in log_repository.status_updates} == {
+        LogStatus.SUCCESS
+    }
     assert session.commits == 1
-    assert session.rollbacks == 1
+    assert session.rollbacks == 0
 
 
 @pytest.mark.asyncio
@@ -344,4 +293,7 @@ async def test_notification_service_rejects_unknown_category() -> None:
     )
 
     with pytest.raises(CategoryNotFoundError):
-        await service.deliver(category_id=999, message="Unknown category")
+        await service.create_pending_delivery_logs(
+            category_id=999,
+            message="Unknown category",
+        )
